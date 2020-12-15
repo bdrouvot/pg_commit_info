@@ -40,7 +40,8 @@ max_replication_slots = 10
 Parameter
 ----------
 
-* `skip-empty-xacts`: skip empty  _xid_. Default is _false_.
+* `skip-empty-xacts`: skip empty _xid_. Default is _false_.
+* `display-cumulative-only`: provide cumulative counters only (instead of a per commit basis). Default is _false_.
 
 Examples
 ========
@@ -94,6 +95,15 @@ xid 75549: lsn:1/3B091F78 inserts:3 deletes:0 updates:0 truncates:0 relations tr
 xid 75550: lsn:1/3B092040 inserts:2 deletes:0 updates:0 truncates:0 relations truncated:0
 xid 75551: lsn:1/3B092588 inserts:1 deletes:5 updates:5 truncates:1 relations truncated:1
 DROP TABLE
+```
+
+The same with display-cumulative-only set to 1, would produce:
+
+```
+Cumulative: commits:1 inserts:0 deletes:0 updates:0 truncates:0 relations truncated:0
+Cumulative: commits:2 inserts:3 deletes:0 updates:0 truncates:0 relations truncated:0
+Cumulative: commits:3 inserts:5 deletes:0 updates:0 truncates:0 relations truncated:0
+Cumulative: commits:4 inserts:6 deletes:5 updates:5 truncates:1 relations truncated:1
 ```
 
 License

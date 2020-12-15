@@ -25,12 +25,19 @@ typedef struct
 	uint64 		nb_insert;
 	uint64 		nb_delete;
 	uint64 		nb_update;
+	uint64 		nb_insert_tot;
+	uint64 		nb_delete_tot;
+	uint64 		nb_update_tot;
+	uint64 		nb_commits_tot;
 #if PG_VERSION_NUM >= 110000
 	uint64 		nb_truncate;
 	uint64 		nb_rel_truncated;
+	uint64 		nb_truncate_tot;
+	uint64 		nb_rel_truncated_tot;
 #endif
 	bool 		skip_empty_xacts;
 	bool		xact_wrote_changes;
+	bool 		display_cumulative_only;
 } CommitInfoDecodingData;
 
 static void pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt,
@@ -87,9 +94,15 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt,
 	data->nb_insert = 0;
 	data->nb_update = 0;
 	data->nb_delete = 0;
+	data->nb_insert_tot = 0;
+	data->nb_update_tot = 0;
+	data->nb_delete_tot = 0;
+	data->nb_commits_tot = 0;
 #if PG_VERSION_NUM >= 110000
 	data->nb_truncate = 0;
 	data->nb_rel_truncated = 0;
+	data->nb_truncate_tot = 0;
+	data->nb_rel_truncated_tot = 0;
 #endif
 
 	ctx->output_plugin_private = data;
@@ -106,6 +119,16 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt,
 			if (elem->arg == NULL)
 				data->skip_empty_xacts = false;
 			else if (!parse_bool(strVal(elem->arg), &data->skip_empty_xacts))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						errmsg("could not parse value \"%s\" for parameter \"%s\"",
+								strVal(elem->arg), elem->defname)));
+		}
+		else if (strcmp(elem->defname, "display-cumulative-only") == 0)
+		{
+			if (elem->arg == NULL)
+				data->display_cumulative_only = false;
+			else if (!parse_bool(strVal(elem->arg), &data->display_cumulative_only))
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						errmsg("could not parse value \"%s\" for parameter \"%s\"",
@@ -160,8 +183,37 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 		return;
 
 	OutputPluginPrepareWrite(ctx, true);
+
+	if (data->display_cumulative_only)
+	{
+		data->nb_insert_tot += data->nb_insert;
+		data->nb_update_tot += data->nb_update;
+		data->nb_delete_tot += data->nb_delete;
+		data->nb_commits_tot++;
 #if PG_VERSION_NUM >= 110000
-	appendStringInfo(ctx->out, "xid %u: lsn:%X/%08X inserts:%lu deletes:%lu updates:%lu truncates:%lu relations truncated:%lu"								,txn->xid
+		data->nb_truncate_tot += data->nb_truncate;
+		data->nb_rel_truncated_tot += data->nb_rel_truncated;
+
+		appendStringInfo(ctx->out, "Cumulative: commits:%lu inserts:%lu deletes:%lu updates:%lu truncates:%lu relations truncated:%lu"
+							,data->nb_commits_tot
+							,data->nb_insert_tot
+							,data->nb_delete_tot
+							,data->nb_update_tot
+							,data->nb_truncate_tot
+							,data->nb_rel_truncated_tot);
+#else
+		appendStringInfo(ctx->out, "Cumulative: commits:%lu inserts:%lu deletes:%lu updates:%lu"
+							,data->nb_commits_tot
+							,data->nb_insert_tot
+							,data->nb_delete_tot
+							,data->nb_update_tot);
+#endif
+	}
+	else
+	{
+#if PG_VERSION_NUM >= 110000
+	appendStringInfo(ctx->out, "xid %u: lsn:%X/%08X inserts:%lu deletes:%lu updates:%lu truncates:%lu relations truncated:%lu"
+							,txn->xid
 							,(uint32) (commit_lsn >> 32)
 							,(uint32) commit_lsn
 							,data->nb_insert
@@ -170,7 +222,8 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 							,data->nb_truncate
 							,data->nb_rel_truncated);
 #else
-	appendStringInfo(ctx->out, "xid %u: lsn:%X/%08X inserts:%lu deletes:%lu updates:%lu", txn->xid
+	appendStringInfo(ctx->out, "xid %u: lsn:%X/%08X inserts:%lu deletes:%lu updates:%lu"
+							,txn->xid
 							,(uint32) (commit_lsn >> 32)
 							,(uint32) commit_lsn
 							,data->nb_insert
@@ -178,6 +231,8 @@ pg_decode_commit_txn(LogicalDecodingContext *ctx, ReorderBufferTXN *txn,
 							,data->nb_update);
 #endif
 						
+	}
+
 	OutputPluginWrite(ctx, true);
 }
 
