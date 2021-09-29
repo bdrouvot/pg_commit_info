@@ -38,6 +38,9 @@ typedef struct
 	bool 		skip_empty_xacts;
 	bool		xact_wrote_changes;
 	bool 		display_cumulative_only;
+#if PG_VERSION_NUM >= 140000
+	bool 		allow_streaming;
+#endif
 } CommitInfoDecodingData;
 
 static void pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt,
@@ -55,6 +58,12 @@ static void pg_decode_truncate(LogicalDecodingContext *ctx,
 							   ReorderBufferTXN *txn,
 							   int nrelations, Relation relations[],
 							   ReorderBufferChange *change);
+#endif
+
+#if PG_VERSION_NUM >= 140000
+static void pg_decode_stream_commit(LogicalDecodingContext *ctx,
+									ReorderBufferTXN *txn,
+									XLogRecPtr commit_lsn);
 #endif
 
 void
@@ -76,6 +85,9 @@ _PG_output_plugin_init(OutputPluginCallbacks *cb)
 #endif
 	cb->commit_cb = pg_decode_commit_txn;
 	cb->shutdown_cb = pg_decode_shutdown;
+#if PG_VERSION_NUM >= 140000
+	cb->stream_commit_cb = pg_decode_stream_commit;
+#endif
 }
 
 
@@ -134,6 +146,18 @@ pg_decode_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt,
 						errmsg("could not parse value \"%s\" for parameter \"%s\"",
 								strVal(elem->arg), elem->defname)));
 		}
+#if PG_VERSION_NUM >= 140000
+		else if (strcmp(elem->defname, "stream-changes") == 0)
+		{
+			if (elem->arg == NULL)
+				data->allow_streaming = false;
+			else if (!parse_bool(strVal(elem->arg), &data->allow_streaming))
+				ereport(ERROR,
+						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						errmsg("could not parse value \"%s\" for parameter \"%s\"",
+								strVal(elem->arg), elem->defname)));
+		}
+#endif
 		else
 		{
 			ereport(ERROR,
